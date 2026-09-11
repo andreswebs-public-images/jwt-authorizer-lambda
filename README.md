@@ -149,7 +149,7 @@ Signature:
 
 ```sh
 cosign verify \
-  --certificate-identity-regexp "https://github.com/andreswebs/jwt-authorizer-lambda/.github/workflows/release.yml@refs/tags/.*" \
+  --certificate-identity-regexp "https://github.com/andreswebs-public-images/jwt-authorizer-lambda/.github/workflows/release.yml@refs/tags/.*" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   "${IMAGE}@${DIGEST}"
 ```
@@ -157,7 +157,7 @@ cosign verify \
 Build provenance:
 
 ```sh
-gh attestation verify "oci://${IMAGE}:${VERSION}" --repo andreswebs/jwt-authorizer-lambda
+gh attestation verify "oci://${IMAGE}:${VERSION}" --repo andreswebs-public-images/jwt-authorizer-lambda
 ```
 
 SBOM:
@@ -165,7 +165,7 @@ SBOM:
 ```sh
 cosign verify-attestation \
   --type spdxjson \
-  --certificate-identity-regexp "https://github.com/andreswebs/jwt-authorizer-lambda/.github/workflows/release.yml@refs/tags/.*" \
+  --certificate-identity-regexp "https://github.com/andreswebs-public-images/jwt-authorizer-lambda/.github/workflows/release.yml@refs/tags/.*" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   "${IMAGE}@${DIGEST}"
 ```
