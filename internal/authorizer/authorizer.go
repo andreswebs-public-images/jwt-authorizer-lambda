@@ -131,7 +131,7 @@ func (a *Authorizer) Handle(ctx context.Context, event Event) (Response, error) 
 		ExpectedIssuer: expectedIssuer,
 	})
 	if err != nil {
-		return Response{}, ErrUnauthorized
+		return Response{}, reject(err)
 	}
 
 	return Response{

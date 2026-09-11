@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/andreswebs/jwt-authorizer-lambda/internal/authorizer"
 	"github.com/andreswebs/jwt-authorizer-lambda/internal/jwt"
@@ -253,5 +254,84 @@ func TestHandleIssuerRetrievalFailureIsNotUnauthorized(t *testing.T) {
 	// not be reported to the caller as a bad credential.
 	if errors.Is(err, authorizer.ErrUnauthorized) {
 		t.Error("issuer lookup failure reported as Unauthorized")
+	}
+}
+
+func TestHandleReportsRejectionReason(t *testing.T) {
+	t.Parallel()
+
+	algNone := func() string {
+		b64 := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+		return b64(`{"alg":"none","typ":"JWT"}`) + "." + b64(`{"iss":"`+testIssuer+`"}`) + "."
+	}()
+
+	tests := []struct {
+		name     string
+		token    string
+		required []string
+		want     string
+	}{
+		{name: "malformed", token: "garbage", want: "malformed"},
+		{name: "unsupported algorithm", token: algNone, want: "unsupported_algorithm"},
+		{name: "signature", token: hs256(t, map[string]any{"iss": testIssuer}, "wrong-key"), want: "signature"},
+		{name: "issuer", token: hs256(t, map[string]any{"iss": "somebody-else"}, testKey), want: "issuer"},
+		{
+			name:  "expired",
+			token: hs256(t, map[string]any{"iss": testIssuer, "exp": time.Now().Add(-time.Hour).Unix()}, testKey),
+			want:  "expired",
+		},
+		{
+			name:  "not yet valid",
+			token: hs256(t, map[string]any{"iss": testIssuer, "nbf": time.Now().Add(time.Hour).Unix()}, testKey),
+			want:  "not_yet_valid",
+		},
+		{
+			name:     "missing claim",
+			token:    hs256(t, map[string]any{"iss": testIssuer}, testKey),
+			required: []string{"exp"},
+			want:     "missing_claim",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, err := authorizer.New(
+				authorizer.Config{TokenPrefix: "Bearer"},
+				jwt.NewVerifier(jwt.Config{RequiredClaims: tc.required}),
+				staticKeys{keys: [][]byte{[]byte(testKey)}},
+				staticIssuer{issuer: testIssuer},
+			)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			_, err = a.Handle(context.Background(), authorizer.Event{
+				Type: "TOKEN", MethodArn: testMethodArn, AuthorizationToken: "Bearer " + tc.token,
+			})
+
+			// The message API Gateway sees must not change, whatever the reason.
+			if err == nil || err.Error() != "Unauthorized" {
+				t.Fatalf("error = %v, want exactly \"Unauthorized\"", err)
+			}
+			if !errors.Is(err, authorizer.ErrUnauthorized) {
+				t.Errorf("errors.Is(err, ErrUnauthorized) = false")
+			}
+			if got := authorizer.Reason(err); got != tc.want {
+				t.Errorf("Reason() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReasonOfUnrelatedErrors(t *testing.T) {
+	t.Parallel()
+
+	if got := authorizer.Reason(nil); got != "" {
+		t.Errorf("Reason(nil) = %q, want empty", got)
+	}
+	if got := authorizer.Reason(errors.New("ssm unavailable")); got != "unknown" {
+		t.Errorf("Reason(unrelated) = %q, want \"unknown\"", got)
 	}
 }

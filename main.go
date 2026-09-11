@@ -114,7 +114,9 @@ func logged(
 		case err == nil:
 			slog.Info("allowed", append(attrs, slog.String("principal", resp.PrincipalID))...)
 		case errors.Is(err, authorizer.ErrUnauthorized):
-			slog.Info("denied", attrs...)
+			// The reason is logged but never returned. The caller learns only
+			// that it was refused; the operator learns which check refused it.
+			slog.Info("denied", append(attrs, slog.String("reason", authorizer.Reason(err)))...)
 		default:
 			slog.Error("failed", append(attrs, slog.Any("err", err))...)
 		}

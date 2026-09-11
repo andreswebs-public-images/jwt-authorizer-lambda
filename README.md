@@ -92,6 +92,18 @@ non-zero rather than starting a function that would reject every caller.
 Nothing logs the credential or any part of it. Logs outlive a token's useful
 life, and a bearer token in a log is a bearer token for whoever can read it.
 
+A rejection is logged with a `reason` naming the check that failed:
+
+```json
+{"level":"INFO","msg":"denied","type":"TOKEN","method_arn":"...","reason":"issuer"}
+```
+
+One of `malformed`, `unsupported_algorithm`, `signature`, `missing_claim`,
+`issuer`, `expired`, `not_yet_valid`. The reason is logged and never returned:
+which check failed is precisely what would let someone tune a forgery, but
+without it an operator has nothing to tell a misconfigured issuer from a stale
+key.
+
 ## Key rotation
 
 With two parameters configured, rotation drops nothing:
