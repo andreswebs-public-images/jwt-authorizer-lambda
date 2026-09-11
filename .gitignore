@@ -1,0 +1,6 @@
+.DS_Store
+.envrc
+bin/
+*.bak
+*.bak.*
+sbom.spdx.json

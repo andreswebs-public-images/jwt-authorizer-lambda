@@ -1,0 +1,5 @@
+{
+  "type": "TOKEN",
+  "methodArn": "arn:aws:execute-api:us-east-1:123456789012:abcdef123/default/POST/",
+  "authorizationToken": "Bearer eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJpc3MiOiJhdHRhY2tlciJ9."
+}

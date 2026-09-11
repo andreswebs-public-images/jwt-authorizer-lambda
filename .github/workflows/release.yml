@@ -1,0 +1,138 @@
+---
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.13.2
+          install-only: true
+
+      # A tag can point at any commit, including one that never went through
+      # the pull-request gate. Re-running the checks here is what makes the
+      # signature below mean something.
+      - name: Validate and compile
+        run: make build
+
+      - name: Test with the race detector
+        run: make test-race
+
+  publish:
+    name: build & publish
+    needs: [validate]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Keyless signing and provenance attestation both exchange this token for
+      # a short-lived Sigstore certificate. No private key exists to leak.
+      id-token: write
+      attestations: write
+
+    env:
+      CONTAINER_REGISTRY: docker.io
+      CONTAINER_REPOSITORY: andreswebs/jwt-authorizer-lambda
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      # `latest` moves here and only here, so it always names a tagged, signed
+      # and attested version rather than whatever last landed on main.
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          flavor: |
+            latest=true
+            prefix=
+            suffix=
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+          images: |
+            ${{ env.CONTAINER_REGISTRY }}/${{ env.CONTAINER_REPOSITORY }}
+
+      - name: Login to Dockerhub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      # cosign-installer v4 installs cosign v3.x, which writes the standardized
+      # Sigstore bundle format. Consumers need cosign v3+ to verify.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # Everything below addresses the image by digest, never by tag. A tag can
+      # be moved to different content; a digest cannot.
+      - name: Sign the image
+        env:
+          IMAGE: ${{ env.CONTAINER_REGISTRY }}/${{ env.CONTAINER_REPOSITORY }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes --recursive "${IMAGE}@${DIGEST}"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          image: ${{ env.CONTAINER_REGISTRY }}/${{ env.CONTAINER_REPOSITORY }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+
+      - name: Attach the SBOM to the image
+        env:
+          IMAGE: ${{ env.CONTAINER_REGISTRY }}/${{ env.CONTAINER_REPOSITORY }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --type spdxjson \
+            --predicate sbom.spdx.json \
+            "${IMAGE}@${DIGEST}"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.CONTAINER_REGISTRY }}/${{ env.CONTAINER_REPOSITORY }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          # Left in GitHub's attestation store rather than pushed as a registry
+          # referrer, because Docker Hub's referrers support is not something to
+          # depend on. `gh attestation verify` resolves it by digest either way.
+          push-to-registry: false

@@ -1,0 +1,40 @@
+version: "2"
+
+linters:
+  # Every linter is named explicitly, so an upgrade cannot silently add or drop
+  # one. The first block is what golangci-lint enables by default; the rest are
+  # deliberate additions.
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - prealloc
+    - revive
+    - unconvert
+    - unparam
+    - wastedassign
+
+  settings:
+    gosec:
+      excludes:
+        # G115 flags every integer conversion as a possible overflow. The one
+        # conversion here is a JSON-decoded NumericDate, already range-checked
+        # by being a timestamp.
+        - G115
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
